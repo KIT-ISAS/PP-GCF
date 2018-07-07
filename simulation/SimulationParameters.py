@@ -16,15 +16,16 @@ class SimParameters(object):
     DO_NOT_ENCRYPT = False
     
     # How many runs in total the simulation should include
-    TOTAL_RUNS = 100
+    TOTAL_RUNS = 1000
     
     # How many agent runs in total the simulation should include
     TIME_STEPS_PER_RUN = 50
     
     # Fractional precision of pre-encryption quantization of measurements
-    MEAS_BIT_PRECISION = 16 # bits
-    MEAS_QUANTIZATION_FACTOR = 2 ** MEAS_BIT_PRECISION
-    MEAS_BIT_SIZE = 24
+    MEAS_QUANTIZATION_FACTOR_8  = 2**8
+    MEAS_QUANTIZATION_FACTOR_16 = 2**16
+    MEAS_QUANTIZATION_FACTOR_24 = 2**24
+    MEAS_BIT_SIZE = 32
     
     # Fractional precision of pre-encryption quantization of weights
     WEIGHT_BIT_PRECISION = 7 # bits

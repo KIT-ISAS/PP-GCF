@@ -17,7 +17,8 @@ controller = SimController(system, grid)
 
 # Runs a simulation a specified number of times
 def Simulation(runs, PID = None):
-    EstimateCount, CumulativeError, CumulativeErrorNoFilter, CumulativeErrorQuantized, CumulativeErrorEncrypted = 0, 0, 0, 0, 0
+    EstimateCount, CumulativeError, CumulativeErrorNoFilter, CumulativeErrorEncrypted = 0, 0, 0, 0
+    CumulativeErrorQ8, CumulativeErrorQ16, CumulativeErrorQ24 = 0, 0, 0
     for run in range(runs):
         if runs < 100 or run % (runs // 100) == 0:
             if PID is None:
@@ -46,17 +47,20 @@ def Simulation(runs, PID = None):
             # Let the controller retrieve an estimate and return its SE
             controller.FetchEstimateFromSameSensor()
             CumulativeError += controller.GetSquaredError()
-            CumulativeErrorQuantized += controller.GetQuantizedSquaredError()
+            E8, E16, E24 = controller.GetQuantizedSquaredErrors()
+            CumulativeErrorQ8  += E8
+            CumulativeErrorQ16 += E16
+            CumulativeErrorQ24 += E24
             if not PARAM.DO_NOT_ENCRYPT:
                 CumulativeErrorEncrypted += controller.GetDecryptedSquaredError()
             EstimateCount += 1
 
-    return EstimateCount, CumulativeErrorNoFilter, CumulativeError, CumulativeErrorQuantized, CumulativeErrorEncrypted
+    return EstimateCount, CumulativeErrorNoFilter, CumulativeError, CumulativeErrorQ8, CumulativeErrorQ16, CumulativeErrorQ24, CumulativeErrorEncrypted
 
 # A wrapper for the simulation function that lets it run in parallel
-def ParallelSimulaton(PID, runs, globalEstCount, globalErrorNoFilter, globalErrorNoEnc, globalErrorQuant, globalErrorEnc):
+def ParallelSimulaton(PID, runs, globalEstCount, globalErrorNoFilter, globalErrorNoEnc, globalErrorQ8, globalErrorQ16, globalErrorQ24, globalErrorEnc):
     # Run the simulation
-    EstimateCount, CumulativeErrorNoFilter, CumulativeError, CumulativeErrorQuantized, CumulativeErrorEncrypted = Simulation(runs, PID=PID)
+    EstimateCount, CumulativeErrorNoFilter, CumulativeError, CumulativeErrorQ8, CumulativeErrorQ16, CumulativeErrorQ24, CumulativeErrorEncrypted = Simulation(runs, PID=PID)
     # Synchronize the output
     with globalEstCount.get_lock():
         globalEstCount.value += EstimateCount
@@ -64,8 +68,12 @@ def ParallelSimulaton(PID, runs, globalEstCount, globalErrorNoFilter, globalErro
         globalErrorNoFilter.value += CumulativeErrorNoFilter
     with globalErrorNoEnc.get_lock():
         globalErrorNoEnc.value += CumulativeError
-    with globalErrorQuant.get_lock():
-        globalErrorQuant.value += CumulativeErrorQuantized
+    with globalErrorQ8.get_lock():
+        globalErrorQ8.value += CumulativeErrorQ8
+    with globalErrorQ16.get_lock():
+        globalErrorQ16.value += CumulativeErrorQ16
+    with globalErrorQ24.get_lock():
+        globalErrorQ24.value += CumulativeErrorQ24
     with globalErrorEnc.get_lock():
         globalErrorEnc.value += CumulativeErrorEncrypted
 
@@ -77,9 +85,10 @@ if __name__ == '__main__':
         # Split the total number of experiments equally between processes
         experimentsPerProcess = PARAM.TOTAL_RUNS // parallelProcessCount
         # Prepare output structures for the processes
-        syncEstimateCount, syncErrorNoFilter, syncErrorNoEnc, syncErrorQuantized, syncErrorEncrypted = mp.Value("i", 0), mp.Value("d", 0.0), mp.Value("d", 0.0), mp.Value("d", 0.0), mp.Value("d", 0.0)
+        syncEstimateCount, syncErrorNoFilter, syncErrorNoEnc, syncErrorEncrypted = mp.Value("i", 0), mp.Value("d", 0.0), mp.Value("d", 0.0), mp.Value("d", 0.0)
+        syncErrorQ8, syncErrorQ16, syncErrorQ24 = mp.Value("d", 0.0), mp.Value("d", 0.0), mp.Value("d", 0.0)
         # Create the process objects
-        processes = [mp.Process(target=ParallelSimulaton, args=(p, experimentsPerProcess, syncEstimateCount, syncErrorNoFilter, syncErrorNoEnc, syncErrorQuantized, syncErrorEncrypted)) for p in range(parallelProcessCount)]
+        processes = [mp.Process(target=ParallelSimulaton, args=(p, experimentsPerProcess, syncEstimateCount, syncErrorNoFilter, syncErrorNoEnc, syncErrorQ8, syncErrorQ16, syncErrorQ24, syncErrorEncrypted)) for p in range(parallelProcessCount)]
         
         # Run all processes in parallel
         [p.start() for p in processes]
@@ -89,25 +98,32 @@ if __name__ == '__main__':
         EstimateCount = int(syncEstimateCount.value)
         RMSEwoFilter = sqrt(float(syncErrorNoFilter.value) / EstimateCount)
         RMSEwoEncrypt = sqrt(float(syncErrorNoEnc.value) / EstimateCount)
-        RMSEwQuantization = sqrt(float(syncErrorQuantized.value) / EstimateCount)
+        RMSEwQuant8bit = sqrt(float(syncErrorQ8.value) / EstimateCount)
+        RMSEwQuant16bit = sqrt(float(syncErrorQ16.value) / EstimateCount)
+        RMSEwQuant24bit = sqrt(float(syncErrorQ24.value) / EstimateCount)
         RMSEwEncryption = sqrt(float(syncErrorEncrypted.value) / EstimateCount)
     else:
-        EstimateCount, CumulativeErrorNoFilter, CumulativeError, CumulativeErrorQuantized, CumulativeErrorEncrypted = Simulation(PARAM.TOTAL_RUNS)
+        EstimateCount, CumulativeErrorNoFilter, CumulativeError, CumulativeErrorQ8, CumulativeErrorQ16, CumulativeErrorQ24, CumulativeErrorEncrypted = Simulation(PARAM.TOTAL_RUNS)
         RMSEwoFilter = sqrt(CumulativeErrorNoFilter / EstimateCount)
         RMSEwoEncrypt = sqrt(CumulativeError / EstimateCount)
-        RMSEwQuantization = sqrt(CumulativeErrorQuantized / EstimateCount)
+        RMSEwQuant8bit = sqrt(CumulativeErrorQ8 / EstimateCount)
+        RMSEwQuant16bit = sqrt(CumulativeErrorQ16 / EstimateCount)
+        RMSEwQuant24bit = sqrt(CumulativeErrorQ24 / EstimateCount)
         RMSEwEncryption = sqrt(CumulativeErrorEncrypted / EstimateCount)
 
     print("total estimates evaluated:", EstimateCount)
-    print("RMSE w/o  encryption:", RMSEwoEncrypt)
+    print("gossip round count:", PARAM.CONSENSUS_ROUND_COUNT)
+    print("RMSE w/o  encryption:        ", RMSEwoEncrypt)
     if not PARAM.DO_NOT_ENCRYPT:
-        print("RMSE w/   encryption:", RMSEwEncryption)
-    print("RMSE w/ quantization:", RMSEwQuantization)
-    print("RMSE w/o   filtering:", RMSEwoFilter)
-    print("precision gain w/ reg. filtering:", RMSEwoFilter/RMSEwoEncrypt, "times")
+        print("RMSE w/   encryption:        ", RMSEwEncryption)
+    print("RMSE w/   8-bit quantization:", RMSEwQuant8bit)
+    print("RMSE w/  16-bit quantization:", RMSEwQuant16bit)
+    print("RMSE w/  24-bit quantization:", RMSEwQuant24bit)
+    print("RMSE w/o filtering:          ", RMSEwoFilter)
+    print("precision gain w/ reg. filtering:         ", RMSEwoFilter/RMSEwoEncrypt, "times")
     if PARAM.DO_NOT_ENCRYPT:
-        print("precision gain w/ quant. filtering:", RMSEwoFilter/RMSEwQuantization, "times")
-        print("precision loss due to quantization:", RMSEwQuantization - RMSEwoEncrypt)
+        print("precision gain w/ 16-bit quant. filtering:", RMSEwoFilter/RMSEwQuant16bit, "times")
+        print("precision loss due to quantization:", RMSEwQuant16bit - RMSEwoEncrypt)
     else:
-        print("precision gain w/ enc. filtering:", RMSEwoFilter/RMSEwEncryption, "times")
+        print("precision gain w/ enc. filtering:         ", RMSEwoFilter/RMSEwEncryption, "times")
         print("precision loss due to encryption:", RMSEwEncryption - RMSEwoEncrypt)

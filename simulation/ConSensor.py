@@ -28,10 +28,16 @@ class ConSensor(object):
         # Round-specific data
         self.MostRecentMeasurement = 0.0
         self.MostRecentEstimate = 0.0
-        self.QuantMostRecentEstimate = 0
+        
+        self.Q08MostRecentEstimate = 0
+        self.Q16MostRecentEstimate = 0
+        self.Q24MostRecentEstimate = 0
         self.EncMostRecentEstimate = 0
+        
         self.CurrentNeighborEstimates = {}
-        self.QuantizedNeighborEstimates = {}
+        self.Q08NeighborEstimates = {}
+        self.Q16NeighborEstimates = {}
+        self.Q24NeighborEstimates = {}
         self.EncryptedNeighborEstimates = {}
         
     def AddNeighborID(self, NeighborID):
@@ -61,25 +67,27 @@ class ConSensor(object):
         assert(log2(result) <= MaxBitLength)
         return result
     
-    def QuantizeMeasurement(self, MeasuredState):
-        return self.Quantize(MeasuredState, PARAM.MEAS_QUANTIZATION_FACTOR, PARAM.MEAS_BIT_SIZE)
+    def QuantizeMeasurement(self, MeasuredState, QuantizationFactor):
+        return self.Quantize(MeasuredState, QuantizationFactor, PARAM.MEAS_BIT_SIZE)
     
     def EncryptQuantizedMeasurement(self, QuantizedState):
         return Paillier.Encrypt(self.pk, QuantizedState)
     
-    def TakeMeasurement(self, RealState):
+    def TakeMeasurement(self, RealState):#PARAM.MEAS_QUANTIZATION_FACTOR
         self.MostRecentMeasurement = self.GetMeasurement(RealState)
         self.MostRecentEstimate = self.MostRecentMeasurement
         # Quantize and encrypt it, too
-        self.QuantMostRecentEstimate = self.QuantizeMeasurement(self.MostRecentEstimate)
+        self.Q08MostRecentEstimate = self.QuantizeMeasurement(self.MostRecentEstimate, PARAM.MEAS_QUANTIZATION_FACTOR_8)
+        self.Q16MostRecentEstimate = self.QuantizeMeasurement(self.MostRecentEstimate, PARAM.MEAS_QUANTIZATION_FACTOR_16)
+        self.Q24MostRecentEstimate = self.QuantizeMeasurement(self.MostRecentEstimate, PARAM.MEAS_QUANTIZATION_FACTOR_24)
         if not PARAM.DO_NOT_ENCRYPT:
-            self.EncMostRecentEstimate = self.EncryptQuantizedMeasurement(self.QuantMostRecentEstimate)
+            self.EncMostRecentEstimate = self.EncryptQuantizedMeasurement(self.Q16MostRecentEstimate)
     
     def SendCurrentEstimateToNeighbors(self):
         for nID in self.MyNeighbors:
             n = self.MyGrid.GetSensorByID(nID)
             n.ReceiveNeighborEstimate(self.MyID, self.MostRecentEstimate)
-            n.ReceiveQuantizedEstimate(self.MyID, self.QuantMostRecentEstimate)
+            n.ReceiveQuantizedEstimate(self.MyID, self.Q08MostRecentEstimate, self.Q16MostRecentEstimate, self.Q24MostRecentEstimate)
             if not PARAM.DO_NOT_ENCRYPT:
                 n.ReceiveEncryptedEstimate(self.MyID, self.EncMostRecentEstimate)
     
@@ -87,9 +95,11 @@ class ConSensor(object):
         assert(NeighborID in self.NeighborWeights)
         self.CurrentNeighborEstimates[NeighborID] = NeighborEstimate
 
-    def ReceiveQuantizedEstimate(self, NeighborID, QuantizedEstimate):
+    def ReceiveQuantizedEstimate(self, NeighborID, Q8Estimate, Q16Estimate, Q24Estimate):
         assert(NeighborID in self.NeighborWeights)
-        self.QuantizedNeighborEstimates[NeighborID] = QuantizedEstimate
+        self.Q08NeighborEstimates[NeighborID] = Q8Estimate
+        self.Q16NeighborEstimates[NeighborID] = Q16Estimate
+        self.Q24NeighborEstimates[NeighborID] = Q24Estimate
 
     def ReceiveEncryptedEstimate(self, NeighborID, EncryptedEstimate):
         assert(not PARAM.DO_NOT_ENCRYPT)
@@ -105,12 +115,16 @@ class ConSensor(object):
             self.MostRecentEstimate += self.NeighborWeights[nID] * self.CurrentNeighborEstimates[nID]
         
     def FuseQuantizedNeighborEstimates(self):
-        self.QuantMostRecentEstimate *= self.QuantizedNeighborWeights[self.MyID]
+        self.Q08MostRecentEstimate *= self.QuantizedNeighborWeights[self.MyID]
+        self.Q16MostRecentEstimate *= self.QuantizedNeighborWeights[self.MyID]
+        self.Q24MostRecentEstimate *= self.QuantizedNeighborWeights[self.MyID]
         for nID in self.MyNeighbors:
             if nID == self.MyID:
                 continue # It's already been add to the result before...
             assert(nID in self.CurrentNeighborEstimates)
-            self.QuantMostRecentEstimate += self.QuantizedNeighborWeights[nID] * self.QuantizedNeighborEstimates[nID]
+            self.Q08MostRecentEstimate += self.QuantizedNeighborWeights[nID] * self.Q08NeighborEstimates[nID]
+            self.Q16MostRecentEstimate += self.QuantizedNeighborWeights[nID] * self.Q16NeighborEstimates[nID]
+            self.Q24MostRecentEstimate += self.QuantizedNeighborWeights[nID] * self.Q24NeighborEstimates[nID]
         
     def FuseEncryptedNeighborEstimates(self):
         assert(not PARAM.DO_NOT_ENCRYPT)
