@@ -42,14 +42,13 @@ class SimParameters(object):
     SYSTEM_INITIAL_STATE = 100.0
     
     # The variance of the Guassian noise that is applied to simulate the system's random walk
-    SYSTEM_RANDOM_WALK_SIGMA = 2.0
+    SYSTEM_RANDOM_WALK_SIGMA = 2.5
     
     # A tuple definining how many sensors are placed along the X and Y axes of the sensor grid
     SENSOR_GRID_DIMENSIONS = (8, 8)
     
     # The variance of "good" vs. "bad" sensors, just to mix it up a little
-    SENSOR_GOOD_VARIANCE = 2.5
-    SENSOR_BAD_VARIANCE = 5.0
+    SENSOR_MEASUREMENT_VARIANCE = 5.0
     
     # The relative weight of the sensor's own estimate during estimate fusion
     OWN_ESTIMATE_WEIGHT = 0.2 # interval: [0.0, 1.0]

@@ -20,7 +20,7 @@ class ConSensorGrid(object):
         # Instatiate all sensors first
         self.MySensors = []
         for i in range(self.SensorCount):
-            newSensor = SimSensor(self, i, PARAM.SENSOR_GOOD_VARIANCE if i % 2 == 1 else PARAM.SENSOR_BAD_VARIANCE)
+            newSensor = SimSensor(self, i, PARAM.SENSOR_MEASUREMENT_VARIANCE)
             self.MySensors.append(newSensor)
         # Connect sensors with their neighbors
         for s in self.MySensors:
