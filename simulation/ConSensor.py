@@ -64,7 +64,8 @@ class ConSensor(object):
     
     def Quantize(self, FloatingPointValue, QuantizationFactor, MaxBitLength):
         result = int(round(FloatingPointValue * QuantizationFactor, 0))
-        assert(log2(result) <= MaxBitLength)
+        if result != 0:
+            assert(log2(abs(result)) <= MaxBitLength)
         return result
     
     def QuantizeMeasurement(self, MeasuredState, QuantizationFactor):
